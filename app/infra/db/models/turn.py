@@ -1,4 +1,3 @@
-# models/turn.py
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
