@@ -1,0 +1,45 @@
+services:
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - 8080:8080
+    env_file:
+      - .env
+    environment:
+      - DB__HOST=postgres
+      - DB__PORT=5432
+      - DB__USER=postgres
+      - DB__PASSWORD=postgres
+      - DB__NAME=postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./:/app
+    restart: unless-stopped
+
+
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - 5432:5432
+    volumes:
+      - postgresdata:/var/lib/postgresql/data
+    restart: always
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "postgres" ]
+      interval: 30s
+      retries: 5
+      start_period: 30s
+      timeout: 10s
+
+
+volumes:
+  postgresdata:
