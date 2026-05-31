@@ -4,7 +4,7 @@ import structlog
 from fastapi import FastAPI
 
 from app.api.exceptions import register_exception_handlers
-from app.api.routes import turns, healthchecks
+from app.api.routes import turns, healthchecks, memories, recall, search
 from config.logging import setup_logging
 from app.infra.db.get_db import DatabaseAdapter
 from config import db_settings
@@ -29,3 +29,6 @@ register_exception_handlers(app)
 
 app.include_router(turns.router)
 app.include_router(healthchecks.router)
+app.include_router(memories.router)
+app.include_router(recall.router)
+app.include_router(search.router)

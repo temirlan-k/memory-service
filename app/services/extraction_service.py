@@ -1,82 +1,95 @@
 import asyncio
-import json
-import re
 import structlog
 
 from app.infra.llm.client import LLMClient
+from app.services.schemas import EntityList, ObservationList
 
 log = structlog.get_logger()
 
-_SYSTEM_PROMPT = """\
-You are a memory extraction engine. Extract structured facts from the conversation.
+_OBSERVATION_PROMPT = """\
+You are observing a conversation. Extract every atomic observation about the user.
 
-Return JSON: {"memories": [...]}
-Each memory object must have:
-  - type: "fact" | "preference" | "opinion" | "event"
-  - key: canonical dot-notation string
-  - value: concise extracted value
-  - confidence: 0.0-1.0
+Include:
+- Explicit statements by the USER ("I work at Notion")
+- Actions the USER takes that imply facts ("walking Biscuit" → user walks an entity named Biscuit)
+- Corrections the USER makes ("actually I meant X")
+- Preferences the USER mentions in passing
 
-Canonical key examples:
-  employment.current_company, employment.current_role, employment.previous_company
-  location.current_city, location.country
-  personal.name, personal.pet_name, personal.pet_type
-  personal.dietary_restriction, personal.allergy
-  preference.programming_language, preference.editor, preference.communication_style
-  opinion.<topic>
-  family.partner_name, family.children_count
-  goal.current, context.current_task
+Do NOT include:
+- Assumptions or guesses made by the assistant ("you seem like a Python developer")
+- Facts stated BY the assistant about the user
+- Questions without factual content
 
-Rules:
-- Use the SAME key for the same fact across sessions — this is critical for deduplication.
-- Capture implicit facts: "walking Biscuit" → pet_name=Biscuit, pet_type=dog.
-- Capture corrections: "actually I meant X" supersedes the prior value.
-- confidence < 0.7 for hedged statements ("might", "thinking about").
-- Skip greetings, filler, questions with no factual content.
-- Return {"memories": []} if nothing is worth extracting.
-
-Output format — return ONLY valid JSON, no markdown, no explanation:
-{
-  "memories": [
-    {"type": "fact",       "key": "location.current_city",      "value": "Berlin",    "confidence": 0.95},
-    {"type": "fact",       "key": "location.previous_city",     "value": "NYC",       "confidence": 0.95},
-    {"type": "preference", "key": "preference.communication_style", "value": "concise", "confidence": 0.8},
-    {"type": "opinion",    "key": "opinion.remote_work",        "value": "prefers it", "confidence": 0.75},
-    {"type": "event",      "key": "context.current_task",       "value": "preparing for interview", "confidence": 0.9}
-  ]
-}
+Do NOT interpret or infer yet — only observe what the USER says or does.
+Return a flat list of short factual sentences about the user.
 """
 
+_ENTITY_PROMPT = """\
+You are an entity extractor. Given observations about a user, extract structured entities.
 
-def _extract_json(raw: str) -> str:
-    raw = raw.strip()
-    match = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw)
-    if match:
-        return match.group(1).strip()
-    return raw or '{"memories": []}'
+For each entity return:
+- value: the concise extracted value ("Berlin", "Notion", "Python", "Biscuit")
+- category: one of LOCATION | ORGANIZATION | ANIMAL | PERSON | PREFERENCE | OPINION | GOAL | ATTRIBUTE
+- attribute: free-form snake_case descriptor of what this is ("current_city", "pet_name", "programming_language")
+- confidence: 0.0–1.0
+
+Category rules (strict):
+- LOCATION: any place, city, country, region
+- ORGANIZATION: any company, employer, institution
+- ANIMAL: any pet or animal the user owns or interacts with
+- PERSON: any person's name
+- PREFERENCE: something the user likes, prefers, or chooses
+- OPINION: what the user thinks or feels about a topic
+- GOAL: what the user is working toward or planning
+- ATTRIBUTE: personal characteristics (dietary restrictions, allergies, etc.)
+
+Examples:
+- "User moved from NYC to Berlin" → LOCATION/previous_city=NYC, LOCATION/current_city=Berlin
+- "User works at Notion" → ORGANIZATION/current_company=Notion
+- "User walks Biscuit" → ANIMAL/pet_name=Biscuit (confidence 0.85)
+- "User prefers Python" → PREFERENCE/programming_language=Python
+- "User is vegetarian" → ATTRIBUTE/dietary_restriction=vegetarian
+- "User is allergic to shellfish" → ATTRIBUTE/allergy=shellfish
+
+confidence < 0.7 for uncertain inferences.
+Return empty list if nothing stable to extract.
+"""
 
 
 class ExtractionService:
     def __init__(self, llm_client: LLMClient):
         self._llm = llm_client
-        self._retry_attempts = 3
-        self._backoff_factor = 1.5
 
-    async def extract_memories(self, messages: list[dict]) -> list[dict]:
-        last_error: Exception | None = None
-        for attempt in range(self._retry_attempts):
+    async def _extract(self, messages: list[dict], response_model):
+        last_error = None
+        for attempt in range(3):
             try:
-                response = await self._llm.chat_completion(
-                    messages=[{"role": "system", "content": _SYSTEM_PROMPT}, *messages],
-                )
-                raw = _extract_json(response.choices[0].message.content or "")
-                memories = json.loads(raw).get("memories", [])
-                log.info("extraction_done", count=len(memories))
-                return memories
+                return await self._llm.extract(messages=messages, response_model=response_model)
             except Exception as e:
                 last_error = e
-                log.warning("extraction_attempt_failed", attempt=attempt + 1, error=str(e))
-                await asyncio.sleep(self._backoff_factor ** attempt)
-
-        log.error("extraction_failed_all_attempts", error=str(last_error))
+                if attempt < 2:
+                    await asyncio.sleep(1.5 ** attempt)
         raise last_error
+
+    async def extract_memories(self, messages: list[dict]) -> list[dict]:
+        obs_result = await self._extract(
+            messages=[{"role": "system", "content": _OBSERVATION_PROMPT}, *messages],
+            response_model=ObservationList,
+        )
+        log.info("observations_done", count=len(obs_result.observations))
+
+        if not obs_result.observations:
+            return []
+
+        observation_text = "\n".join(f"- {o}" for o in obs_result.observations)
+        entity_result = await self._extract(
+            messages=[
+                {"role": "system", "content": _ENTITY_PROMPT},
+                {"role": "user", "content": f"Observations:\n{observation_text}"},
+            ],
+            response_model=EntityList,
+        )
+
+        memories = [e.to_memory().model_dump() for e in entity_result.entities]
+        log.info("extraction_done", count=len(memories))
+        return memories
