@@ -25,6 +25,13 @@ Initially used postgres:17-alpine, had an issue, the pgvector extension was not 
 Change to pgvector/pgvector:pg17, fix obvious.
 
 Settings were instantiated multiple times in the code base, and every time it re-read .env.
-Moved to singletons in config/__init__.py
+Moved to singletons in config/__init__.py. Service boots, migrations on startup, POST /turns saves. Next extraction.
+---
 
-Service boots, migrations on startup, POST /turns saves. Next extraction.
+## v4: Extraction pipeline
+
+LLM extracts structured memories for each turn. Turn + memories commit in one transaction, if extraction fails turn is not saved
+
+Supersession uses exact key matching (WHERE active=true AND key=?). Works reliably, because LLM is prompted with a canonical key list the same fact always gets the same key. Known limitation: LLM can drift on edge cases, vector similarity would fix it but adds complexity not justified for this scope.
+
+response_format={"type": "json_object"} caused empty responses on OpenRouter It's OpenAI-specific. Removed it, added a fallback for stripping markdown. Next: schema enforcement at the API level via tool calling.

@@ -5,6 +5,9 @@ from fastapi import Depends, Request
 
 from app.infra.db.get_db import DatabaseAdapter
 from app.infra.db.unit_of_work import UnitOfWork
+from app.infra.llm.client import LLMClient
+from app.services.embedding_service import EmbeddingService
+from app.services.extraction_service import ExtractionService
 from app.services.memory_service import MemoryService
 
 
@@ -21,7 +24,11 @@ async def get_uow(
 
 UoWDep = Annotated[UnitOfWork, Depends(get_uow)]
 
-_memory_service = MemoryService()
+_llm_client = LLMClient()
+_memory_service = MemoryService(
+    extraction_service=ExtractionService(_llm_client),
+    embedding_service=EmbeddingService(_llm_client),
+)
 
 
 def get_memory_service() -> MemoryService:

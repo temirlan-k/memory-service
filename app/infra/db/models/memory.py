@@ -45,7 +45,7 @@ class Memory(Base):
 
     source_session: Mapped["Session"] = relationship(back_populates="memories")
     source_turn: Mapped["Turn"] = relationship(back_populates="memories")
-    supersedes: Mapped["Memory | None"] = relationship("Memory", remote_side="Memory.id")
+    supersedes: Mapped["Memory | None"] = relationship("Memory", foreign_keys="Memory.supersedes_id", remote_side="Memory.id",)
 
     __table_args__ = (
         Index("ix_memories_user_key_active", "user_id", "key", "active"),

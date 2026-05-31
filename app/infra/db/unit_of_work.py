@@ -2,6 +2,7 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.infra.db.repositories.turn_repo import TurnRepository
+from app.infra.db.repositories.memory_repo import MemoryRepository
 
 log = structlog.get_logger()
 
@@ -13,6 +14,7 @@ class UnitOfWork:
     async def __aenter__(self) -> "UnitOfWork":
         self.session: AsyncSession = self._session_factory()
         self.turns = TurnRepository(self.session)
+        self.memories = MemoryRepository(self.session)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
