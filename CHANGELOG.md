@@ -81,3 +81,12 @@ Supersession broke on key drift — `employment.current_employer` vs `employment
 KeyNormalizer: before saving, LLM checks if new key matches existing key with same prefix. Match → use existing key, supersession fires. +1 LLM call/turn.
 
 Prompt injection: regex filter drops messages with injection patterns before extraction. Tradeoff: real facts in the same message are lost too.
+---
+
+## v10: is_stable field + DI fix
+
+`get_stable_facts` used prefix matching (`personal.*`, `employment.*`, ...) — adding a new category meant updating two separate lists in different files. Missed one → facts silently missing from context.
+
+Replaced with `is_stable` boolean field on Memory. Set at extraction time based on category — OPINION and GOAL are unstable, everything else is stable. Single source of truth in `_UNSTABLE_CATEGORIES`. `get_stable_facts` now queries `WHERE is_stable=True`.
+
+UoW opened a DB session before request body validation — 422 errors triggered unnecessary DB transactions. Changed DI to return UoW object without opening session. Services call `async with uow:` themselves — session opens only when actually needed.

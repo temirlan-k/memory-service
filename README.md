@@ -30,7 +30,7 @@ POST /recall
     ├── BM25 (PostgreSQL tsvector) × all queries
     ├── Vector search (pgvector cosine)
     ├── RRF fusion
-    ├── Stable facts (personal/employment/location — always included first)
+    ├── Stable facts (is_stable=True — always included first)
     ├── Context assembly under token budget
     └── LLM formatting → readable sentences
 ```
@@ -58,7 +58,7 @@ Models: `gpt-4o-mini` via OpenRouter for extraction, `text-embedding-3-small` fo
 
 1. **Query expansion** — LLM rewrites query into 2-3 keyword phrases. Improves BM25 on vague queries.
 2. **Hybrid search** — BM25 + vector, fused with RRF (k=60). BM25 catches token matches, vector catches semantics.
-3. **Token budget priority:** stable facts first (`personal.*`, `employment.*`, `location.*`), then query-relevant by RRF. Minimum threshold 0.02 — below this, memory is excluded to avoid noise.
+3. **Token budget priority:** stable facts first (`is_stable=True` — set at extraction time by category), then query-relevant by RRF. Minimum threshold 0.02 — below this, memory is excluded to avoid noise.
 
 Context is LLM-formatted into readable sentences. Falls back to raw `key: value` on failure.
 
@@ -93,18 +93,18 @@ Memories are scoped to `user_id`, not `session_id`. All sessions for the same us
 ## How to run
 
 ```bash
-git clone https://github.com/temirlan-k/memory-service memory-service
+git clone <repo> memory-service
 cd memory-service
 cp .env.example .env  # set AI__LLM_API_KEY
 docker compose up -d
-http://127.0.0.1:8080/docs#/health/
+while ! curl -sf http://localhost:8080/health > /dev/null; do sleep 1; done
 ```
 
 ## How to run tests
 
 ```bash
 docker compose up -d
-http://127.0.0.1:8080/docs#/health/
+while ! curl -sf http://localhost:8080/health > /dev/null; do sleep 1; done
 
 # Contract + robustness + session isolation
 python3 -m venv .venv && source .venv/bin/activate
