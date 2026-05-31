@@ -1,4 +1,3 @@
-from collections.abc import AsyncGenerator
 from typing import Annotated
 
 from fastapi import Depends, Request
@@ -21,14 +20,14 @@ def get_db_adapter(request: Request) -> DatabaseAdapter:
     return request.app.state.db
 
 
-async def get_uow(
+def get_uow(
     db: Annotated[DatabaseAdapter, Depends(get_db_adapter)],
-) -> AsyncGenerator[UnitOfWork, None]:
-    async with UnitOfWork(db.session_factory) as uow:
-        yield uow
+) -> UnitOfWork:
+    return UnitOfWork(db.session_factory)
 
 
 UoWDep = Annotated[UnitOfWork, Depends(get_uow)]
+DbAdapterDep = Annotated[DatabaseAdapter, Depends(get_db_adapter)]
 
 _llm_client = LLMClient()
 

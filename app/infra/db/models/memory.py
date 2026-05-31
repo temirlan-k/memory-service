@@ -36,6 +36,7 @@ class Memory(Base):
     embedding: Mapped[list | None] = mapped_column(Vector(1536), nullable=True)
 
     active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    is_stable: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     supersedes_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("memories.id", ondelete="SET NULL"), nullable=True
     )

@@ -93,20 +93,21 @@ Memories are scoped to `user_id`, not `session_id`. All sessions for the same us
 ## How to run
 
 ```bash
-git clone <repo> memory-service
+git clone https://github.com/temirlan-k/memory-service memory-service
 cd memory-service
 cp .env.example .env  # set AI__LLM_API_KEY
 docker compose up -d
-until curl -sf http://localhost:8080/health; do sleep 1; done
+http://127.0.0.1:8080/docs#/health/
 ```
 
 ## How to run tests
 
 ```bash
 docker compose up -d
-until curl -sf http://localhost:8080/health; do sleep 1; done
+http://127.0.0.1:8080/docs#/health/
 
 # Contract + robustness + session isolation
+python3 -m venv .venv && source .venv/bin/activate
 pip install httpx pytest
 pytest tests/ -v --ignore=tests/test_recall_quality.py
 

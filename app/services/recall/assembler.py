@@ -7,7 +7,6 @@ from app.infra.llm.client import LLMClient
 
 log = structlog.get_logger()
 
-_STABLE_PREFIXES = {"personal", "employment", "location", "family"}
 _MIN_RRF_SCORE = 0.02
 
 _FORMAT_PROMPT = """\
@@ -22,7 +21,6 @@ personal.pet_name=Biscuit → Has a pet named Biscuit
 personal.dietary_restriction=vegetarian → Is vegetarian
 personal.allergy=shellfish → Allergic to shellfish
 goal.upcoming_interview=system design interview → Preparing for a system design interview
-preference.programming_language=Python → Prefers Python
 """
 
 
@@ -36,9 +34,6 @@ _FORMAT_OVERHEAD = 4
 def _approx_tokens(text: str) -> int:
     return (len(text) * _FORMAT_OVERHEAD) // 4
 
-
-def _is_stable(key: str) -> bool:
-    return key.split(".")[0] in _STABLE_PREFIXES
 
 
 class ContextAssembler:

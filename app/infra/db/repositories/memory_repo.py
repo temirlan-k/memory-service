@@ -1,14 +1,13 @@
 import uuid
 
 import structlog
-from sqlalchemy import select, func, or_, text
+from sqlalchemy import select, func, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infra.db.models.memory import Memory
 from app.infra.db.models.turn import Turn
 
-_STABLE_PREFIXES = ("personal", "employment", "location", "family")
 
 log = structlog.get_logger()
 
@@ -36,6 +35,7 @@ class MemoryRepository:
                     confidence=item.get("confidence", 1.0),
                     embedding=item.get("embedding") or None,
                     supersedes_id=supersedes_id,
+                    is_stable=item.get("is_stable", True),
                 )
                 self.session.add(memory)
             await self.session.flush()
@@ -56,12 +56,14 @@ class MemoryRepository:
             )
         )
 
-        existing = result.scalar_one_or_none()
-        if existing is None:
+        existing_all = list(result.scalars().all())
+        if not existing_all:
             return None
 
-        existing.active = False
-        return existing.id
+        latest = max(existing_all, key=lambda m: m.created_at)
+        for m in existing_all:
+            m.active = False
+        return latest.id
 
     async def get_by_user(self, user_id: str) -> list[Memory]:
         result = await self.session.execute(
@@ -74,7 +76,7 @@ class MemoryRepository:
             select(Memory).where(
                 Memory.user_id == user_id,
                 Memory.active == True,  # noqa: E712
-                or_(*[Memory.key.startswith(p) for p in _STABLE_PREFIXES]),
+                Memory.is_stable == True,  # noqa: E712
             )
         )
         return list(result.scalars().all())

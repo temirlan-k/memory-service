@@ -16,7 +16,8 @@ class RecallService:
             return RecallResponse(context="", citations=[])
 
         queries = await self._expander.expand(query)
-        candidates = await self._searcher.search(uow, user_id, query, queries)
-        stable = await uow.memories.get_stable_facts(user_id)
+        async with uow:
+            candidates = await self._searcher.search(uow, user_id, query, queries)
+            stable = await uow.memories.get_stable_facts(user_id)
 
         return await self._assembler.assemble(stable, candidates, max_tokens)

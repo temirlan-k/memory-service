@@ -11,7 +11,8 @@ class SearchService:
         if not user_id:
             return SearchResponse(results=[])
 
-        candidates = await self._searcher.search(uow, user_id, query, [])
+        async with uow:
+            candidates = await self._searcher.search(uow, user_id, query, [])
         results = [
             SearchResult(
                 content=f"{m.key}: {m.value}",

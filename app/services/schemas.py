@@ -19,6 +19,8 @@ _CATEGORY_PREFIX = {
     "ATTRIBUTE": "personal",
 }
 
+_UNSTABLE_CATEGORIES = {"OPINION", "GOAL"}
+
 
 class ExtractedEntity(BaseModel):
     value: str
@@ -39,7 +41,8 @@ class ExtractedEntity(BaseModel):
     def to_memory(self) -> "ExtractedMemory":
         prefix = _CATEGORY_PREFIX[self.category]
         key = f"{prefix}.{self.attribute}"
-        return ExtractedMemory(key=key, value=self.value, confidence=self.confidence)
+        is_stable = self.category not in _UNSTABLE_CATEGORIES
+        return ExtractedMemory(key=key, value=self.value, confidence=self.confidence, is_stable=is_stable)
 
 
 class EntityList(BaseModel):
@@ -51,6 +54,7 @@ class ExtractedMemory(BaseModel):
     key: str
     value: str
     confidence: float = 1.0
+    is_stable: bool = True
 
     @field_validator("key")
     @classmethod

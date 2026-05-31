@@ -23,12 +23,13 @@ class MemoryService:
 
     async def ingest_turn(self, uow: UnitOfWork, data: TurnRequest) -> Turn:
         try:
-            turn = await uow.turns.create(data)
-            memories = await self._extract_memories(uow, data)
-            if memories:
-                await self._embed_and_save(uow, memories, turn, data.user_id)
-            log.info("turn_saved", turn_id=str(turn.id), session_id=data.session_id)
-            return turn
+            async with uow:
+                turn = await uow.turns.create(data)
+                memories = await self._extract_memories(uow, data)
+                if memories:
+                    await self._embed_and_save(uow, memories, turn, data.user_id)
+                log.info("turn_saved", turn_id=str(turn.id), session_id=data.session_id)
+                return turn
         except Exception as e:
             log.error("ingest_turn_failed", session_id=data.session_id, error=str(e))
             raise
@@ -49,10 +50,13 @@ class MemoryService:
         await uow.memories.save_all(memories, turn, user_id)
 
     async def get_user_memories(self, uow: UnitOfWork, user_id: str) -> list[Memory]:
-        return await uow.memories.get_by_user(user_id)
+        async with uow:
+            return await uow.memories.get_by_user(user_id)
 
     async def delete_session(self, uow: UnitOfWork, session_id: str) -> None:
-        await uow.turns.delete_by_session(session_id)
+        async with uow:
+            await uow.turns.delete_by_session(session_id)
 
     async def delete_user(self, uow: UnitOfWork, user_id: str) -> None:
-        await uow.turns.delete_by_user(user_id)
+        async with uow:
+            await uow.turns.delete_by_user(user_id)

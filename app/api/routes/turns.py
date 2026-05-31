@@ -4,6 +4,7 @@ from app.api.schemas import TurnRequest, TurnResponse
 
 router = APIRouter(prefix="/turns", tags=["turns"])
 
+
 @router.post("", response_model=TurnResponse, status_code=status.HTTP_201_CREATED)
 async def create_turn(
     data: TurnRequest,

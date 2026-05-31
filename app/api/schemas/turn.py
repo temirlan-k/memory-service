@@ -11,7 +11,7 @@ class Message(BaseModel):
 class TurnRequest(BaseModel):
     session_id: str
     user_id: Optional[str] = None
-    messages: list[Message]
+    messages: list[Message] = Field(min_length=1)
     timestamp: datetime
     metadata: dict = Field(default_factory=dict)
 
