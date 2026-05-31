@@ -1,37 +1,83 @@
+# Dev Log
+
 ## v1: Bootstrapping
 
-Basic project setup: FastAPI, PostgreSQL, Docker. Chose pgvector vs a separate vector store like qdrant/milvus to keep it simple, one less service to maintain.
-Used uv instead of pip, since it's faster and handles lockfiles in Docker nicely.
-Container up and running, health check is working, Alembic migrations and structlog configured.
+FastAPI, PostgreSQL, Docker. pgvector over Qdrant/Milvus — one less service. uv over pip — faster, cleaner lockfiles in Docker.
+
 ---
 
 ## v2: Data model
 
-Could store text chunks from turns directly into Memory, but fact evolution would be impossible — no way to tell "works at Stripe" and "just joined Notion" are the same fact. Switched to key/value so contradictions are detectable by key.
+Raw message chunks make fact evolution impossible — can't tell `"works at Stripe"` and `"joined Notion"` are the same fact. Switched to key/value.
 
-Some field notes worth mentioning:
-- confidence: LLM is not always sure, "might move to Berlin" vs "lives in Berlin" are different weights for recall ranking
-- embedding: nullable, can save memory first and then embed separately, no blocking of main flow
-- active + supersedes_id: soft delete, old fact stays in history and new references it. In the future /recall filters active=true /users/{id}/memories shows the full chain
+- `confidence` — hedged statements (`"might move to Berlin"`) get lower weight in recall
+- `active` + `supersedes_id` — soft delete, history preserved, `/recall` filters `active=true`
+
 ---
 
 ## v3: Infrastructure fixes
 
-Turn and Memories to make a joint commitment. Needed If extraction fails , the turn should not be saved either .
-Changed to Unit of Work for that atomicity: repo gets session in constructor, UoW owns commit/rollback.
-UoW fixed that as a side effect. Passing session through every method was also getting messy.
+Turn saved but extraction failed — turn in DB with no memories. Unit of Work: turn + memories commit together, rollback on failure.
 
-Initially used postgres:17-alpine, had an issue, the pgvector extension was not installed.
-Change to pgvector/pgvector:pg17, fix obvious.
+`postgres:17-alpine` — pgvector missing. Switched to `pgvector/pgvector:pg17`.
 
-Settings were instantiated multiple times in the code base, and every time it re-read .env.
-Moved to singletons in config/__init__.py. Service boots, migrations on startup, POST /turns saves. Next extraction.
+Settings re-read `.env` on every import. Moved to singletons.
+
 ---
 
 ## v4: Extraction pipeline
 
-LLM extracts structured memories for each turn. Turn + memories commit in one transaction, if extraction fails turn is not saved
+`response_format={"type": "json_object"}` — OpenRouter ignored it. Switched to tool calling via `instructor` — schema enforced at API level.
 
-Supersession uses exact key matching (WHERE active=true AND key=?). Works reliably, because LLM is prompted with a canonical key list the same fact always gets the same key. Known limitation: LLM can drift on edge cases, vector similarity would fix it but adds complexity not justified for this scope.
+Supersession via exact key match (`WHERE key=? AND active=true`). Simple, fast. Tradeoff: breaks on key drift.
 
-response_format={"type": "json_object"} caused empty responses on OpenRouter It's OpenAI-specific. Removed it, added a fallback for stripping markdown. Next: schema enforcement at the API level via tool calling.
+---
+
+## v5: Two-pass extraction
+
+Single-pass missed implicit facts — model doing too many things at once. Split: Pass 1 lists raw observations, Pass 2 infers structured facts. Each pass has one job.
+
+Result: `pet_name`, `previous_city`, opinions extracted consistently.
+
+---
+
+## v6: Entity-based extraction with deterministic key mapping
+
+Pass 2 picked canonical keys directly — `"NYC"` landed in `employment.previous_company` because model guessed from context, not entity type.
+
+Changed to typed entities (LOCATION, ORGANIZATION, ANIMAL, ...) + free-form attribute. Python mapper converts category → key prefix. LLM classifies, code builds the key.
+
+Remaining: free-form attribute varies between runs — not a bug, known non-determinism.
+
+---
+
+## v7: /recall — hybrid search + query rewriting
+
+Cosine top-k missed keyword queries. Added BM25 (tsvector) + vector, fused with RRF. Query rewriting expands into 2-3 phrases before BM25.
+
+Minimum RRF threshold (0.02) — filters noise on unrelated queries, "Relevant" section stays empty instead of returning everything.
+
+Raw key=value unreadable for LLM agent. Added formatting pass — `"personal.pet_name=Biscuit"` → `"Has a pet named Biscuit"`. Falls back to raw on failure.
+
+---
+
+## v8: /search, tests, hardening
+
+POST /search — same HybridSearcher, no LLM calls. Agent tool — latency over quality.
+
+Tests: contract roundtrip, session isolation, malformed input, recall quality fixture.
+
+- `supersedes_id` FK blocked DELETE /users. Added `ondelete="SET NULL"`
+- Token budget on raw values, LLM outputs ~4x longer. Added overhead multiplier
+- BM25 ran twice per query. Cached first pass
+- QueryExpander had no examples. Added few-shot with keyword phrases
+
+---
+
+## v9: Key normalization + prompt injection
+
+Supersession broke on key drift — `employment.current_employer` vs `employment.current_company`, both active after job change.
+
+KeyNormalizer: before saving, LLM checks if new key matches existing key with same prefix. Match → use existing key, supersession fires. +1 LLM call/turn.
+
+Prompt injection: regex filter drops messages with injection patterns before extraction. Tradeoff: real facts in the same message are lost too.

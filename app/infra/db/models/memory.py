@@ -37,7 +37,7 @@ class Memory(Base):
 
     active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     supersedes_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("memories.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("memories.id", ondelete="SET NULL"), nullable=True
     )
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

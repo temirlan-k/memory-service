@@ -54,9 +54,9 @@ class TurnRepository:
 
     async def delete_by_user(self, user_id: str) -> None:
         try:
-            result = await self.session.execute(select(Turn).where(Turn.user_id == user_id))
-            for turn in result.scalars().all():
-                await self.session.delete(turn)
+            result = await self.session.execute(select(Session).where(Session.user_id == user_id))
+            for session in result.scalars().all():
+                await self.session.delete(session)
             await self.session.flush()
         except SQLAlchemyError as e:
             log.error("delete_by_user_failed", user_id=user_id, error=str(e))

@@ -1,12 +1,14 @@
 import uuid
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, func, or_, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infra.db.models.memory import Memory
 from app.infra.db.models.turn import Turn
+
+_STABLE_PREFIXES = ("personal", "employment", "location", "family")
 
 log = structlog.get_logger()
 
@@ -66,3 +68,42 @@ class MemoryRepository:
             select(Memory).where(Memory.user_id == user_id).order_by(Memory.created_at.desc())
         )
         return list(result.scalars().all())
+
+    async def get_stable_facts(self, user_id: str) -> list[Memory]:
+        result = await self.session.execute(
+            select(Memory).where(
+                Memory.user_id == user_id,
+                Memory.active == True,  # noqa: E712
+                or_(*[Memory.key.startswith(p) for p in _STABLE_PREFIXES]),
+            )
+        )
+        return list(result.scalars().all())
+
+    async def search_bm25(self, user_id: str, query: str, limit: int = 20) -> list[Memory]:
+        search_text = func.to_tsvector("english", Memory.key + " " + Memory.value)
+        search_query = func.plainto_tsquery("english", query)
+        result = await self.session.execute(
+            select(Memory)
+            .where(
+                Memory.user_id == user_id,
+                Memory.active == True,  # noqa: E712
+                search_text.op("@@")(search_query),
+            )
+            .order_by(func.ts_rank(search_text, search_query).desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def search_vector(self, user_id: str, embedding: list[float], limit: int = 20) -> list[tuple[Memory, float]]:
+        distance = Memory.embedding.cosine_distance(embedding).label("distance")
+        result = await self.session.execute(
+            select(Memory, distance)
+            .where(
+                Memory.user_id == user_id,
+                Memory.active == True,  # noqa: E712
+                Memory.embedding.is_not(None),
+            )
+            .order_by(text("distance"))
+            .limit(limit)
+        )
+        return [(row.Memory, row.distance) for row in result.all()]
